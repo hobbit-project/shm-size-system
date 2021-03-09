@@ -1,77 +1,74 @@
 package org.hobbit.sdk.examples.examplebenchmark.system;
 
-import org.apache.jena.rdf.model.NodeIterator;
-import org.apache.jena.rdf.model.Property;
-import org.apache.jena.rdf.model.ResIterator;
-import org.apache.jena.vocabulary.RDF;
+import java.io.InputStream;
 import org.hobbit.core.components.AbstractSystemAdapter;
-import org.hobbit.vocab.HOBBIT;
+import org.hobbit.core.rabbit.RabbitMQUtils;
+import org.hobbit.sdk.examples.examplebenchmark.Constants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.IdentityHashMap;
-import java.util.Map;
+import java.util.function.Supplier;
 
 
-public class SystemAdapter extends AbstractSystemAdapter {
+public class SystemAdapter extends AbstractSystemAdapter implements Supplier<String> {
     private static final Logger logger = LoggerFactory.getLogger(SystemAdapter.class);
-    private Map<String, String> parameters = new HashMap<>();
-
-    @Override
-    public void init() throws Exception {
-        super.init();
-        logger.debug("Init()");
-
-        //Getting default values from system.ttl
-        Property parameter;
-        NodeIterator objIterator;
-        ResIterator iterator = systemParamModel.listResourcesWithProperty(RDF.type, HOBBIT.Parameter);
-        Property defaultValProperty = systemParamModel.getProperty("http://w3id.org/hobbit/vocab#defaultValue");
-        while (iterator.hasNext()) {
-            parameter = systemParamModel.getProperty(iterator.next().getURI());
-            objIterator = systemParamModel.listObjectsOfProperty(parameter, defaultValProperty);
-            while (objIterator.hasNext()) {
-                String value = objIterator.next().asLiteral().getString();
-                parameters.put(parameter.getLocalName(), value);
-            }
-        }
-    }
 
     @Override
     public void receiveGeneratedData(byte[] data) {
-        // handle the incoming data as described in the benchmark description
-        String dataStr = new String(data);
-        logger.trace("receiveGeneratedData("+new String(data)+"): "+dataStr);
-
-
-
     }
 
     @Override
     public void receiveGeneratedTask(String taskId, byte[] data) {
-        // handle the incoming task and create a result
-        String result = "result_"+taskId;
-        logger.trace("receiveGeneratedTask({})->{}",taskId, new String(data));
+    }
 
-        // Send the result to the evaluation storage
-        try {
-            logger.trace("sendResultToEvalStorage({})->{}", taskId, result);
-            sendResultToEvalStorage(taskId, result.getBytes());
-        } catch (IOException e) {
-            e.printStackTrace();
+    public void receiveCommand(byte command, byte[] data) {
+        if (command == Constants.INPUT_DATA_COMMAND) {
+            String input = RabbitMQUtils.readString(data);
+            logger.info("Input (discarded): {}", input);
+            String output = get();
+            if (output != null) {
+                logger.info("Output: {}", output);
+                try {
+                    sendToCmdQueue(Constants.OUTPUT_DATA_COMMAND, RabbitMQUtils.writeString(output));
+                    terminate(null);
+                } catch (IOException e) {
+                    terminate(e);
+                }
+            }
+        } else {
+            super.receiveCommand(command, data);
         }
-
     }
 
     @Override
-    public void close() throws IOException {
-        // Free the resources you requested here
-        logger.debug("close()");
+    public String get() {
+        try {
+            // Process process = new ProcessBuilder("sh", "-c", "df --output=size --block-size=1 /dev/shm |awk '$N>1'").start();
+            Process process = new ProcessBuilder("sh", "-c", "df --output=size -h /dev/shm |tail -n +2").start();
 
-        // Always close the super class after yours!
-        super.close();
+            InputStream input = process.getInputStream();
+            StringBuilder builder = new StringBuilder();
+            byte[] buffer = new byte[1024];
+            int read;
+            while((read = input.read(buffer)) != -1) {
+                String output = new String(buffer, 0, read);
+                builder.append(output);
+            };
+            input.close();
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                logger.error("Subprocess returned exit code {}", exitCode);
+                terminate(new RuntimeException("Subprocess error"));
+                return null;
+            }
+
+            return builder.toString();
+        } catch (IOException | InterruptedException e) {
+            terminate(e);
+            return null;
+        }
     }
 
 }

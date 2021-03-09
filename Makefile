@@ -15,9 +15,4 @@ test-dockerized-benchmark:
 
 
 push-images:
-	sudo docker push git.project-hobbit.eu:4567/sdk-examples/sdk-example-benchmark/benchmark-controller
-	sudo docker push git.project-hobbit.eu:4567/sdk-examples/sdk-example-benchmark/datagen
-	sudo docker push git.project-hobbit.eu:4567/sdk-examples/sdk-example-benchmark/taskgen
-	sudo docker push git.project-hobbit.eu:4567/sdk-examples/sdk-example-benchmark/eval-storage
-	sudo docker push git.project-hobbit.eu:4567/sdk-examples/sdk-example-benchmark/system-adapter
-	sudo docker push git.project-hobbit.eu:4567/sdk-examples/sdk-example-benchmark/eval-module
+	docker push git.project-hobbit.eu:4567/gitadmin/shm-size-system/system-adapter
